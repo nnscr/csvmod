@@ -1,8 +1,8 @@
-from csvmod import Controller, price
+from csvmod import Controller, comma_decimal
 
 
 class DemoController(Controller):
-    converters = {"Price": price, "Shipping": price}
+    converters = {"Price": comma_decimal, "Shipping": comma_decimal}
 
     def handle(self, origin, row):
         if not row["ItemNo"].startswith("u0"):
@@ -29,6 +29,5 @@ class TestController(Controller):
     fields = ("Price", "Shipping", "DispatchTime", "ArticleNo")
 
     def handle(self, origin, row):
-        print(origin)
-
         row["Shipping"] = row["ArticleNo"] + row["DispatchTime"]
+        row["ArticleNo"] = 1234

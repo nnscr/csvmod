@@ -1,18 +1,19 @@
 import csv
 
 
-def price(val):
+def comma_decimal(val):
     return float(val.replace(",", "."))
 
 
 class CSVError(Exception):
-    @staticmethod
-    def invalid_header(expected, actual):
-        error = CSVError("Invalid header")
-        error.expected = expected
-        error.actual = actual
+    pass
 
-        return error
+
+class CSVHeaderError(CSVError):
+    def __init__(self, expected, actual):
+        CSVError.__init__(self, "Invalid header")
+        self.expected = expected
+        self.actual = actual
 
 
 class CSVMod(object):
@@ -35,12 +36,36 @@ class CSVMod(object):
 
             origin = row.copy()
             self.controller.handle(origin, row)
+            self.controller.post_progress(origin, row)
 
             if origin != row:
                 writer.writerow(row)
 
-    def apply_change(self, field, new_value):
-        pass
+        self.controller.finish()
+
+
+class Statistics(object):
+    def __init__(self):
+        self.changes = {}
+        self.rows = 0
+
+    def process(self, origin, row):
+        changed = False
+        for field in origin.keys():
+            if origin[field] != row[field]:
+                changed = True
+                try:
+                    self.changes[field] += 1
+                except KeyError:
+                    self.changes[field] = 1
+
+        if changed:
+            self.rows += 1
+
+    def finish(self):
+        print("Finished, modified %d rows." % self.rows)
+        for field, changes in self.changes.items():
+            print("%5d %s" % (changes, field))
 
 
 class Controller(object):
@@ -48,6 +73,7 @@ class Controller(object):
     quotechar = '"'
     converter = dict()
     fields = None
+    statistics = Statistics()
 
     def handle(self, origin, row):
         pass
@@ -60,7 +86,7 @@ class Controller(object):
         fields = list(self.fields)
 
         if header != fields:
-            raise CSVError.invalid_header(fields, header)
+            raise CSVHeaderError(fields, header)
 
     def get_reader_options(self):
         try:
@@ -76,6 +102,14 @@ class Controller(object):
             return type(self).writer_options
         except AttributeError:
             return self.get_reader_options()
+
+    def post_progress(self, origin, row):
+        if self.statistics is not None:
+            self.statistics.process(origin, row)
+
+    def finish(self):
+        if self.statistics is not None:
+            self.statistics.finish()
 
 
 if __name__ == "__main__":
@@ -104,9 +138,7 @@ if __name__ == "__main__":
     with open(read_file, "r") as input_handle, open(write_file, "w") as output_handle:
         try:
             mod.start(input_handle, output_handle)
-        except CSVError as e:
-            print(e)
-        except Exception as e:
+        except CSVHeaderError as e:
             print("Unexpected header detected.")
             print(e.expected)
             print(e.actual)
