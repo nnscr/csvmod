@@ -1,4 +1,4 @@
-from csvmod import Controller, comma_decimal
+from csvmod import Controller, comma_decimal, comma_decimal_formatter
 
 
 class DemoController(Controller):
@@ -25,8 +25,10 @@ class TestController(Controller):
     Write something about this csv modifier!
     """
     delimiter = "|"
-    converter = {"ArticleNo": int, "DispatchTime": int}
+    converter = {"ArticleNo": int, "DispatchTime": int, "Price": comma_decimal}
+    formatter = {"Price": comma_decimal_formatter}
     fields = ("Price", "Shipping", "DispatchTime", "ArticleNo")
+    writer_options = dict(delimiter=";")
 
     def handle(self, origin, row):
         row["Shipping"] = row["ArticleNo"] + row["DispatchTime"]
