@@ -5,6 +5,14 @@ import unittest.main
 from unittest import mock
 
 
+class JoinCSVMock(object):
+    test_row = CSVRow({"jfoo": "jbar"}, dict(), dict())
+    auto_join = mock.Mock(return_value=test_row)
+
+    def __init__(self, name=None):
+        self.name = name
+
+
 class TestCounter(TestCase):
     def test_plus(self):
         counter = Statistics.Counter()
@@ -69,16 +77,11 @@ class TestCSVRow(TestCase):
         self.assertEqual(False, row.has_join("baz"))
 
     def test_join(self):
-        jrow = CSVRow({"jfoo": "jbar"}, dict(), dict())
-
-        class JoinCSVMock(object):
-            auto_join = mock.Mock(return_value=jrow)
-
         jmock = JoinCSVMock()
 
         row = CSVRow(dict(self.f), {"foo": jmock}, dict())
         self.assertRaises(CSVError, row.join, "bar")
-        self.assertEqual(jrow, row.join("foo"))
+        self.assertEqual(jmock.test_row, row.join("foo"))
         self.assertEqual("jbar", row.join("foo", "jfoo"))
 
 
@@ -92,6 +95,84 @@ class TestCSVFile(TestCase):
         c = CSVFile(file="foo", fields=("foo", "bar"))
         self.assertEqual({"foo": "foo", "bar": "bar"}, c._reduce_fields({"foo": "foo", "bar": "bar", "baz": "baz"}))
         self.assertEqual({"foo": "foo"}, c._reduce_fields({"foo": "foo", "baz": "baz"}))
+
+    def test_fields(self):
+        c = CSVFile(file="foo", aliases={"f": "foo", "b": "bar"})
+        self.assertListEqual([], c.fields)
+        c.fields = ("f", "bar")
+        self.assertListEqual(["foo", "bar"], c.fields)
+        c.fields = ("foo", "bar")
+        self.assertListEqual(["foo", "bar"], c.fields)
+        c.fields = ("f", "bar")
+        self.assertListEqual(["foo", "bar"], c.fields)
+
+
+class TestCSVReadFile(TestCase):
+    def test_set_joins(self):
+        foo, bar = JoinCSVMock("foo"), JoinCSVMock("bar")
+        c = CSVReadFile(file="")
+
+        self.assertEqual(dict(), c.joins)
+        c.joins = foo
+        self.assertEqual({"foo": foo}, c.joins)
+        c.joins = [foo, bar]
+        self.assertEqual({"foo": foo, "bar": bar}, c.joins)
+        c.joins = (foo, bar)
+        self.assertEqual({"foo": foo, "bar": bar}, c.joins)
+
+    def test_check_header(self):
+        c = CSVReadFile(file="")
+        self.assertEqual(True, c.check_header(("foo", "bar", "baz")))
+        c.fields = ("foo", "bar")
+        self.assertEqual(True, c.check_header(("foo", "bar", "baz")))
+        self.assertRaises(CSVHeaderError, c.check_header, ("a", "b", "c"))
+        self.assertRaises(CSVHeaderError, c.check_header, ("foo", ))
+
+    def test_create_row(self):
+        c = CSVReadFile(file="", converter={"foo": int, "bar": float}, fields=("foo", "bar", "baz"))
+        r = c.create_row({"foo": "123", "bar": "12.34", "baz": "321"})
+        self.assertIsInstance(r, CSVRow)
+        self.assertEqual(r["foo"], 123)
+        self.assertEqual(r["bar"], 12.34)
+        self.assertEqual(r["baz"], "321")
+
+
+class TestCSVWriteFile(TestCase):
+    def test_write(self):
+        data = {"foo": "bar", "bar": "foo"}
+
+        writerow = mock.Mock()
+        c = CSVWriteFile(file="")
+        c.base_csv = mock.Mock(spec=csv.DictWriter)
+        c.base_csv.writerow = writerow
+        c.fields = ["foo", "bar"]
+
+        c.write(data)
+        writerow.assert_called_once_with(data)
+        writerow.reset_mock()
+
+        c.formatter = {"foo": lambda s: s[::-1]}
+        c.write(data)
+        writerow.assert_called_once_with({"foo": "rab", "bar": "foo"})
+        writerow.reset_mock()
+        c.formatter = {}
+
+        c.fields = ["bar"]
+        c.write(data)
+        writerow.assert_called_once_with({"bar": "foo"})
+        writerow.reset_mock()
+
+        c.aliases = {"foo": "test1", "bar": "test2"}
+        c.fields = ["test1", "test2"]
+        c.write(data)
+        writerow.assert_called_once_with({"test1": "bar", "test2": "foo"})
+        writerow.reset_mock()
+
+
+class TestJoinCSV(TestCase):
+    def test_get_row(self):
+        c = JoinCSV(local="", remote="", file="")
+        c.base_csv = mock.Mock(spec=csv.DictReader)
 
 
 if __name__ == "__main__":

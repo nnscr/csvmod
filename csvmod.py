@@ -117,12 +117,14 @@ class CSVRow(object):
 
 class CSVFile(object):
     def __init__(self, **kwargs):
+        self._fields = list()
+
         self.file_name = kwargs.pop("file")
         self.file_handle = None
         self.format = dict(delimiter=";", quotechar='"')
         self.encoding = kwargs.pop("encoding", "utf-8")
-        self.fields = kwargs.pop("fields", None)
         self.aliases = kwargs.pop("aliases", dict())
+        self.fields = kwargs.pop("fields", list())
         self.converter = kwargs.pop("converter", dict())
         self.base_csv = None
         self.name = kwargs.pop("name", None)
@@ -132,6 +134,21 @@ class CSVFile(object):
 
         if len(kwargs) > 0:
             raise KeyError("Invalid option: %s" % ", ".join(kwargs.keys()))
+
+    @property
+    def fields(self):
+        return self._fields
+
+    @fields.setter
+    def fields(self, lst):
+        fields = list()
+        for field in lst:
+            if field in self.aliases:
+                fields.append(self.aliases[field])
+            else:
+                fields.append(field)
+
+        self._fields = fields
 
     def begin(self):
         pass
@@ -145,21 +162,23 @@ class CSVFile(object):
 
 class CSVReadFile(CSVFile):
     def __init__(self, **kwargs):
+        self._joins = dict()
         self.joins = kwargs.pop("joins", list())
 
-        if isinstance(self.joins, JoinCSV):
-            self.joins = (self.joins, )
-
-        joins = dict()
-        for join in self.joins:
-            joins[join.name] = join
-
-        self.joins = joins
-
-        if "name" not in kwargs:
-            kwargs["name"] = "main"
-
         super().__init__(**kwargs)
+
+    @property
+    def joins(self):
+        return self._joins
+
+    @joins.setter
+    def joins(self, joins):
+        if not hasattr(joins, "__iter__"):
+            joins = (joins, )
+
+        self._joins = dict()
+        for join in joins:
+            self._joins[join.name] = join
 
     def __iter__(self):
         return self.base_csv
@@ -174,6 +193,8 @@ class CSVReadFile(CSVFile):
         for field in fields:
             if field not in header:
                 raise CSVHeaderError(field, header)
+
+        return True
 
     def create_row(self, data) -> CSVRow:
         for field, converter in self.converter.items():
@@ -193,15 +214,6 @@ class CSVReadFile(CSVFile):
         if self.fields is None:
             self.fields = self.reader.fieldnames
         else:
-            fields = list()
-            for field in self.fields:
-                if field in self.aliases:
-                    fields.append(self.aliases[field])
-                else:
-                    fields.append(field)
-
-            self.fields = fields
-
             self.check_header(self.reader.fieldnames)
 
         for join in self.joins.values():
@@ -230,7 +242,13 @@ class CSVWriteFile(CSVFile):
 
         return self.base_csv
 
+    @CSVFile.fields.setter
+    def fields(self, val):
+        self._fields = val
+
     def write(self, data):
+        data = dict(data)
+
         for field, formatter in self.formatter.items():
             data[field] = formatter(data[field])
 
@@ -238,6 +256,18 @@ class CSVWriteFile(CSVFile):
 
     def writeheader(self):
         self.writer.writeheader()
+
+    def _reduce_fields(self, row: dict):
+        result = dict()
+
+        for k, v in row.items():
+            if k in self.fields:
+                result[k] = v
+
+            if k in self.aliases:
+                result[self.aliases[k]] = v
+
+        return result
 
 
 class JoinCSV(CSVReadFile):
@@ -358,6 +388,9 @@ class Controller(object):
     @property
     def reader(self) -> CSVReadFile:
         if not self._reader:
+            if "name" not in self.settings:
+                self.settings["name"] = "main"
+
             self._reader = CSVReadFile(**self.settings)
 
         return self._reader
@@ -368,6 +401,9 @@ class Controller(object):
             opts = dict(self.output)
             if opts.get("fields") is None:
                 opts["fields"] = self.reader.fields
+
+            if "name" not in opts:
+                opts["name"] = "main"
 
             self._writer = CSVWriteFile(**opts)
 
